@@ -617,8 +617,33 @@ footer h4{font-size:.68rem;letter-spacing:2px;color:var(--gold);text-transform:u
 
 <script>
 /* ══ CONFIG — Web3Forms ══ */
-/* ⚠️ ضع هنا الـ Access Key من web3forms.com */
 const W3F_KEY = '13493021-0739-48cd-a0ed-a3f07ec2e22f';
+
+/* ══ SESSION FORM DATA ══ */
+/* يحفظ بيانات الفورم في sessionStorage — تُمسح تلقائياً لما يغلق المتصفح */
+function saveFormData(){
+  try{
+    const nameEl=document.getElementById('mName');
+    if(!nameEl||!nameEl.value.trim())return;
+    sessionStorage.setItem('iynexx_form',JSON.stringify({
+      name:nameEl.value,
+      phone:document.getElementById('mPhone').value,
+      wilaya:document.getElementById('mWilaya').value,
+      addr:document.getElementById('mAddr').value
+    }));
+  }catch(e){}
+}
+function loadFormData(){
+  try{
+    const data=JSON.parse(sessionStorage.getItem('iynexx_form')||'{}');
+    if(!data.name)return;
+    safeSet('mName',data.name);
+    safeSet('mPhone',data.phone);
+    safeSet('mAddr',data.addr);
+    const w=document.getElementById('mWilaya');
+    if(w&&data.wilaya)w.value=data.wilaya;
+  }catch(e){}
+}
 
 /* ══ AUTH ══ */
 async function hashPass(p){const e=new TextEncoder(),d=await crypto.subtle.digest('SHA-256',e.encode(p)),b=Array.from(new Uint8Array(d));return b.map(x=>x.toString(16).padStart(2,'0')).join('');}
@@ -630,9 +655,15 @@ function logoutUser(){localStorage.removeItem('iynexx_current_user')}
 
 function updateAuthUI(){
   const u=getCurrentUser(),btn=document.getElementById('navAuthBtn');
-  if(u){btn.textContent=u.name.split(' ')[0]+' ✕';btn.classList.add('logged');}
-  else{btn.textContent='تسجيل الدخول';btn.classList.remove('logged');}
-  if(u){safeSet('mName',u.name);safeSet('mPhone',u.phone);safeSet('mEmail',u.email);safeSet('mAddr',u.addr);const w=document.getElementById('mWilaya');if(w&&u.wilaya)w.value=u.wilaya;}
+  if(u){
+    btn.textContent=u.name.split(' ')[0]+' ✕';btn.classList.add('logged');
+    safeSet('mName',u.name);safeSet('mPhone',u.phone);safeSet('mEmail',u.email);safeSet('mAddr',u.addr);
+    const w=document.getElementById('mWilaya');if(w&&u.wilaya)w.value=u.wilaya;
+  }else{
+    btn.textContent='تسجيل الدخول';btn.classList.remove('logged');
+    /* ← التعديل: يحمل بيانات الجلسة لما ما فيش مستخدم مسجل */
+    loadFormData();
+  }
 }
 function safeSet(id,val){const el=document.getElementById(id);if(el&&val)el.value=val;}
 function handleAuthClick(){const u=getCurrentUser();if(u){if(confirm('هل تريد تسجيل الخروج؟')){logoutUser();updateAuthUI();}}else{openAuth();}}
@@ -712,6 +743,7 @@ function checkoutFromCart(){
   document.getElementById('selChip').classList.remove('show');
   const u=getCurrentUser();
   if(u){safeSet('mName',u.name);safeSet('mPhone',u.phone);safeSet('mEmail',u.email);safeSet('mAddr',u.addr);}
+  else{loadFormData();} /* ← التعديل */
   newRef();document.getElementById('mQty').value=1;openOrderModal();
 }
 
@@ -906,6 +938,7 @@ function openOrder(productName){
   newRef();
   const u=getCurrentUser();
   if(u){safeSet('mName',u.name);safeSet('mPhone',u.phone);safeSet('mEmail',u.email);safeSet('mAddr',u.addr);const w=document.getElementById('mWilaya');if(w&&u.wilaya)w.value=u.wilaya;}
+  else{loadFormData();} /* ← التعديل */
   buildProductSelect();
   if(productName){
     const sel=document.getElementById('mProduct');let found=false;
@@ -923,7 +956,11 @@ function clearChip(){document.getElementById('mProduct').value='';document.getEl
 function newRef(){const el=document.getElementById('mRef');if(el)el.value='IYN-'+Date.now().toString(36).toUpperCase();}
 
 /* ══ SUBMIT — Web3Forms ══ */
+let _lastSubmit=0; /* cooldown 30 ثانية */
 async function submitOrder(){
+  const now=Date.now();
+  if(now-_lastSubmit<30000&&_lastSubmit!==0){alert('انتظر لحظة قبل إرسال طلب جديد');return;}
+
   const cart=getCart();
   const isCartOrder=document.getElementById('cartOrderSummary').style.display!=='none'&&cart.length>0;
   const req=['mName','mPhone','mWilaya','mAddr'];
@@ -931,6 +968,10 @@ async function submitOrder(){
   let ok=true;
   req.forEach(id=>{const el=document.getElementById(id);if(!el||!el.value.trim()){if(el){el.style.borderColor='var(--orange)';setTimeout(()=>el.style.borderColor='',2200);}ok=false;}});
   if(!ok){alert('يرجى ملء جميع الحقول الإلزامية (*)');return;}
+
+  /* ← التعديل: يحفظ البيانات بعد التحقق */
+  saveFormData();
+
   let productStr=isCartOrder?cart.map(i=>`${i.name} ×${i.qty} (${i.price*i.qty} دت)`).join(' | '):document.getElementById('mProduct').value;
   const data={
     ref:        document.getElementById('mRef').value,
@@ -969,6 +1010,7 @@ async function submitOrder(){
     });
     const result=await res.json();
     if(!result.success)throw new Error(result.message||'فشل الإرسال');
+    _lastSubmit=Date.now(); /* ← تحديث وقت آخر إرسال */
     closeOrder();
     if(isCartOrder)saveCart([]);
     document.getElementById('successMsg').textContent=`شكراً ${data.name}! طلبك رقم ${data.ref} تم استلامه. سنتصل بك على ${data.phone} لتأكيد التوصيل إلى ${data.wilaya}.`;
